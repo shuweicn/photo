@@ -1,0 +1,6 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+venv/
+*.log
+.DS_Store
+config.py
