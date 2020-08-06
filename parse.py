@@ -66,7 +66,7 @@ def infos():
 
 
 if __name__ == '__main__':
-
+    Base.metadata.create_all(engine)
 
     for i in infos():
         now = str(datetime.now())[0:19]
