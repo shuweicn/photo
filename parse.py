@@ -26,6 +26,7 @@ class Photo(Base):
     id = Column(Integer, primary_key=True)
     path = Column(String(256), index=True)
     mtime = Column(DateTime)
+    ctime = Column(DateTime)
     md5 = Column(String(64), index=True)
     sha256 = Column(String(256))
 
@@ -59,12 +60,13 @@ def infos():
         yield dict(
             path=f,
             mtime=datetime.fromtimestamp(os.path.getmtime(f)),
+            ctime=datetime.fromtimestamp(os.path.getctime(f)),
             **hash_file(f)
         )
 
 
 if __name__ == '__main__':
-    Base.metadata.create_all(engine)
+
 
     for i in infos():
         now = str(datetime.now())[0:19]
