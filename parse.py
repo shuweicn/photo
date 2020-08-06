@@ -2,15 +2,25 @@ import os
 import sqlalchemy
 import redis
 import hashlib
-from sqlalchemy import MetaData, Column, Integer, String, DateTime
+import json
+import logging
+from sqlalchemy import MetaData, Column, Integer, String, DateTime, JSON, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from os import path
-from config import parse_path, DATABASE, REDIS
+from config import PHOTO_PATH, DATABASE, REDIS, EXIFTOOLS, LOG
 from datetime import datetime
+from subprocess import Popen, PIPE, STDOUT
+from traceback import format_exc
+from multiprocessing import Pool
 
+logging.basicConfig(
+    filename=LOG,
+    level=logging.DEBUG,
+    format='%(asctime)s %(message)s'
 
-os.chdir(parse_path)
+)
+os.chdir(PHOTO_PATH)
 
 r = redis.Redis(**REDIS)
 
@@ -29,56 +39,91 @@ class Photo(Base):
     ctime = Column(DateTime)
     md5 = Column(String(64), index=True)
     sha256 = Column(String(256))
+    exif = Column(JSON)
+    exif_status = Column(Boolean)
+
 
     def __repr__(self):
         return f'Photo {self.path}'
 
 
-def hash_file(fp):
+def file_hash(fp):
     hash_md5 = hashlib.md5()
     hash_sha256 = hashlib.sha256()
     with open(fp, "rb") as f:
         for chunk in iter(lambda: f.read(4096), b""):
             hash_md5.update(chunk)
             hash_sha256.update(chunk)
+
     return {
         'md5': hash_md5.hexdigest()[8:24],
-        'sha256': hash_sha256.hexdigest()
+        'sha256': hash_sha256.hexdigest(),
     }
 
 
+def file_exif(fp):
+    cmd = f'{EXIFTOOLS} -json "{fp}"'
+
+    with Popen(cmd, stdout=PIPE, stderr=STDOUT, shell=True) as c:
+        out, err = c.communicate()
+        try:
+            return {
+                'exif': json.loads(out),
+                'exif_status': True
+            }
+
+        except json.decoder.JSONDecodeError:
+
+            if out and not err:
+                msg = out.decode().strip()
+            elif not out and err:
+                msg = err.decode().strip()
+            elif out and err:
+                msg = out.decode().strip() + '|' + err.decode().strip()
+            else:
+                msg = ''
+            return {
+                'exif': {'Error': msg},
+                'exif_status': False
+            }
+
+
 def files():
-    for base, dirs, _files in os.walk(parse_path):
+    for base, dirs, _files in os.walk('./'):
         for f in _files:
             file_path = path.join(base, f)
-            main_dir = file_path[len(parse_path):]
-            yield main_dir.lstrip('/')
+            yield file_path.rstrip('./')
 
 
-def infos():
-    for f in files():
-        yield dict(
-            path=f,
-            mtime=datetime.fromtimestamp(os.path.getmtime(f)),
-            ctime=datetime.fromtimestamp(os.path.getctime(f)),
-            **hash_file(f)
-        )
+
+def process_a_photo(fp):
+    try:
+        if r.get(fp) is None:
+            db_arg = dict(
+                path=fp,
+                mtime=datetime.fromtimestamp(os.path.getmtime(fp)),
+                ctime=datetime.fromtimestamp(os.path.getctime(fp)),
+                **file_hash(fp),
+                **file_exif(fp),
+            )
+            session.add(Photo(**db_arg))
+            session.commit()
+            r.set(fp, 1)
+            logging.info(f'register {fp}')
+        else:
+            logging.info(f'continue {fp}')
+    except Exception as e:
+        logging.error(f'error {fp} {e} \n {format_exc()}')
+
+
+def process_all_photo():
+    import time
+    s = time.time()
+    pool = Pool(5)
+    pool.map(process_a_photo, files())
+    print(time.time() - s)
 
 
 if __name__ == '__main__':
     Base.metadata.create_all(engine)
-
-    for i in infos():
-        now = str(datetime.now())[0:19]
-
-        p = i['path']
-        try:
-            if r.get(p) is None:
-                session.add(Photo(**i))
-                session.commit()
-                r.set(p, 1)
-                print(f'[{now}] register {p}', flush=True)
-            else:
-                print(f'[{now}] continue {p}', flush=True)
-        except Exception as e:
-            print(f'[{now} error {p} {e}]')
+    process_all_photo()
