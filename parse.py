@@ -12,17 +12,18 @@ from config import PHOTO_PATH, DATABASE, REDIS, EXIFTOOLS, LOG
 from datetime import datetime
 from subprocess import Popen, PIPE, STDOUT
 from traceback import format_exc
-from multiprocessing import Pool
+from multiprocessing import Pool, RLock
 
 logging.basicConfig(
     filename=LOG,
     level=logging.DEBUG,
-    format='%(asctime)s %(message)s'
+    format='[%(asctime)s] %(message)s'
 
 )
 os.chdir(PHOTO_PATH)
 
 r = redis.Redis(**REDIS)
+
 
 Base = declarative_base()
 metadata = MetaData()
@@ -67,10 +68,18 @@ def file_exif(fp):
     with Popen(cmd, stdout=PIPE, stderr=STDOUT, shell=True) as c:
         out, err = c.communicate()
         try:
-            return {
-                'exif': json.loads(out),
-                'exif_status': True
-            }
+
+            exif = json.loads(out)
+            if isinstance(exif, list) and len(exif) == 1:
+                return {
+                    'exif': exif,
+                    'exif_status': True
+                }
+            else:
+                return {
+                    'exif': exif,
+                    'exif_status': False
+                }
 
         except json.decoder.JSONDecodeError:
 
@@ -91,9 +100,7 @@ def file_exif(fp):
 def files():
     for base, dirs, _files in os.walk('./'):
         for f in _files:
-            file_path = path.join(base, f)
-            yield file_path.rstrip('./')
-
+            yield path.join(base, f)
 
 
 def process_a_photo(fp):
@@ -106,12 +113,15 @@ def process_a_photo(fp):
                 **file_hash(fp),
                 **file_exif(fp),
             )
+
+
             session.add(Photo(**db_arg))
             session.commit()
+            exif_status = bool(db_arg['exif_status'])
             r.set(fp, 1)
-            logging.info(f'register {fp}')
+            logging.info(f'register {exif_status} {fp}')
         else:
-            logging.info(f'continue {fp}')
+            logging.info(f'continue None {fp}')
     except Exception as e:
         logging.error(f'error {fp} {e} \n {format_exc()}')
 
@@ -127,3 +137,4 @@ def process_all_photo():
 if __name__ == '__main__':
     Base.metadata.create_all(engine)
     process_all_photo()
+
