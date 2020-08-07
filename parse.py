@@ -88,7 +88,7 @@ def file_exif(fp):
             exif = json.loads(out)
             if isinstance(exif, list) and len(exif) == 1:
                 return {
-                    'exif': exif,
+                    'exif': exif[0],
                     'exif_status': True
                 }
             else:
