@@ -43,9 +43,25 @@ class Photo(Base):
     exif = Column(JSON)
     exif_status = Column(Boolean)
 
+    def __repr__(self):
+        return f'Photo {self.path}'
+
+
+class PhotoMulti(Base):
+    __tablename__ = 'photo_multi'
+    id = Column(Integer, primary_key=True)
+    path = Column(String(256))
+    md5 = Column(String(64))
+    sha256 = Column(String(256))
 
     def __repr__(self):
         return f'Photo {self.path}'
+
+
+def files():
+    for base, dirs, _files in os.walk('./'):
+        for f in _files:
+            yield path.join(base, f)
 
 
 def file_hash(fp):
@@ -97,10 +113,14 @@ def file_exif(fp):
             }
 
 
-def files():
-    for base, dirs, _files in os.walk('./'):
-        for f in _files:
-            yield path.join(base, f)
+def parse_multi(path, md5, sha256, *args, **kwargs):
+    num = r.get(md5)
+    if not num:
+        r.set(md5, 1)
+    else:
+        r.incr(md5, 1)
+        session.add(PhotoMulti(path=path, md5=md5, sha256=sha256))
+        session.commit()
 
 
 def process_a_photo(fp):
@@ -114,9 +134,11 @@ def process_a_photo(fp):
                 **file_exif(fp),
             )
 
-
             session.add(Photo(**db_arg))
             session.commit()
+
+            parse_multi(**db_arg)
+
             exif_status = bool(db_arg['exif_status'])
             r.set(fp, 1)
             logging.info(f'register {exif_status} {fp}')
