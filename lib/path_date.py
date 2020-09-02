@@ -1,21 +1,22 @@
-import datetime
 import re
+from datetime import datetime
 from os import path
+from model.photo import session, Photo
 
 
 def model(p):
     model = p.exif.get('Model', 'Other')
-    if '/2013-2015/Studio/' in p.src:
-        return 'Studio'
+    if '/Studio/meipai_' in p.src:
+        return 'meipai'
 
-    elif '/video/meipai_' in p.src:
+    if '/video/meipai_' in p.src:
         return 'meipai'
 
     elif '/Camera/meipai_' in p.src:
         return 'meipai'
 
     elif '/.thumbnails/' in p.src or '/thumbnails/' in p.src:
-        return  'thumbnails'
+        return 'thumbnails'
 
     elif '/miaopai/' in p.src:
         return 'miaopai'
@@ -25,20 +26,20 @@ def model(p):
 
     elif '/Screenshot_' in p.src:
         return 'Screenshots'
+
     elif '/YouCam Makeup/' in p.src:
         return 'YouCam_Makeup'
-    # iphone
-    elif model in ['iPhone 7 Plus', 'iPhone XS Max', 'iPhone 11 Pro Max', 'iPhone X',
-            'iPhone 6s', 'iPhone 5', 'iPad mini 2', 'iPhone11,6', 'iPhone 6s Plus',
-            'YAL-AL50', 'DUK-AL20', 'GT-N7100', 'SM-N9100', 'GT-I9500', 'MI4', 'MI 5',
-            'XT531', 'Canon EOS 800D', 'vivo X21A', 'T780', 'vivo X9i', 'KNT-AL20', 'Other']:
-        return model.replace(' ', '-') #.replace(' ', '_').replace('-', '_')
 
-    elif model == 'VLUU i80/ Samsung i80/ VLUU i800':
-        return  'VLUU i800'
+    elif '/2013-2015/Studio/' in p.src:
+        return 'Studio'
 
     elif model == '':
-        return  'None'
+        return 'None'
+
+    elif model == 'Other':
+        device = p.exif.get('DeviceManufacturer')
+        if device:
+            model = device
 
     return model
 
@@ -138,7 +139,7 @@ def file_name_date(p):
     if name_date:
         return name_date
     elif re.search('^1[2-6]\d{11}\D|\D(1[2-6]\d{11}\D)', base_name):
-        r =  re.search('1[2-6]\d{8}', base_name)
+        r = re.search('1[2-6]\d{8}', base_name)
         stamp_time = datetime.fromtimestamp(int(base_name[r.start():r.end()]))
         return stamp_time
 
@@ -172,3 +173,4 @@ def path_with_date(p, exist=0):
         final_name = date.strftime(_f) + suf
 
     return path.join(date.strftime('%Y-%m'), _model, final_name)
+

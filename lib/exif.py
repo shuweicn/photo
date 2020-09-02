@@ -1,22 +1,15 @@
 import os
-import redis
 import hashlib
 import json
 
 from os import path
-from config import PHOTO_PATH, REDIS, EXIFTOOLS
+from config import EXIFTOOLS
 from datetime import datetime
 from subprocess import Popen, PIPE, STDOUT
-from traceback import format_exc
 from multiprocessing import Pool
-from lib.log import logging
+from lib.log import log
 
 from model.photo import Photo, session
-
-
-os.chdir(PHOTO_PATH)
-
-rds = redis.Redis(**REDIS)
 
 
 def files():
@@ -41,7 +34,6 @@ def file_hash(fp):
 
 def file_exif(fp):
     cmd = f'{EXIFTOOLS} -json "{fp}"'
-
     with Popen(cmd, stdout=PIPE, stderr=STDOUT, shell=True) as c:
         out, err = c.communicate()
         try:
@@ -75,40 +67,48 @@ def file_exif(fp):
 
 
 def process_a_photo(fp):
-    try:
-        if rds.hget(fp, 'src') is None:
-            mtime = os.path.getmtime(fp)
-            ctime = os.path.getctime(fp)
+    mtime = os.path.getmtime(fp)
+    ctime = os.path.getctime(fp)
 
-            db_arg = dict(path=fp, **file_hash(fp), **file_exif(fp))
+    db_arg = dict(path=fp, **file_hash(fp), **file_exif(fp))
 
-            session.add(
-                Photo(
-                    mtime=datetime.fromtimestamp(mtime),
-                    ctime=datetime.fromtimestamp(ctime)
-                      **db_arg
-                )
-            )
-            session.commit()
+    session.add(
+        Photo(
+            mtime=datetime.fromtimestamp(mtime),
+            ctime=datetime.fromtimestamp(ctime)
+            **db_arg
+        )
+    )
+    session.commit()
 
-            exif_status = bool(db_arg['exif_status'])
-            rds.hmset(fp, dict(mtime=mtime, ctime=ctime, **db_arg))
+    exif_status = bool(db_arg['exif_status'])
+    log.info(f'exif {exif_status} {fp}')
 
-            logging.info(f'register {exif_status} {fp}')
+
+def write_all_photo_to_db():
+    for fp in files():
+        if session.query(Photo).filter_by(src=fp).first():
+            log.info(f'write_all_photo_to_db continue {fp}')
         else:
-            logging.info(f'continue None {fp}')
-    except Exception as e:
-        logging.error(f'error {fp} {e} \n {format_exc()}')
+            exif = file_exif(fp)
 
+            if '.' not in path.basename(fp) or (
+                    fp.count('.') == 1 and fp.startswith('.')):
+                file_suffix = '_none'
+            else:
+                file_suffix = fp.split('.')[-1].strip(),
 
-def process_all_photo():
-    import time
-    s = time.time()
-    pool = Pool(5)
-    pool.map(process_a_photo, files())
-    print(time.time() - s)
-
-
-if __name__ == '__main__':
-    process_all_photo()
+            data = dict(
+                src=fp,
+                mtime=datetime.fromtimestamp(os.path.getmtime(fp)),
+                ctime=datetime.fromtimestamp(os.path.getctime(fp)),
+                exif_type=exif['exif'].get('FileType', '_none').strip(),
+                file_suffix=file_suffix,
+                **file_hash(fp),
+                **file_exif(fp),
+            )
+            exif_status = bool(data['exif_status'])
+            session.add(Photo(**data))
+            session.commit()
+            log.info(f'write_all_photo_to_db {exif_status} {fp}')
 
