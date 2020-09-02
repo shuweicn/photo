@@ -1,61 +1,22 @@
 import os
-import sqlalchemy
 import redis
 import hashlib
 import json
-import logging
-from sqlalchemy import MetaData, Column, Integer, String, DateTime, JSON, Boolean
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+
 from os import path
-from config import PHOTO_PATH, DATABASE, REDIS, EXIFTOOLS, LOG
+from config import PHOTO_PATH, REDIS, EXIFTOOLS
 from datetime import datetime
 from subprocess import Popen, PIPE, STDOUT
 from traceback import format_exc
-from multiprocessing import Pool, RLock
+from multiprocessing import Pool
+from lib.log import logging
 
-logging.basicConfig(
-    filename=LOG,
-    level=logging.DEBUG,
-    format='[%(asctime)s] %(message)s'
+from model.photo import Photo, session
 
-)
+
 os.chdir(PHOTO_PATH)
 
-r = redis.Redis(**REDIS)
-
-
-Base = declarative_base()
-metadata = MetaData()
-engine = sqlalchemy.create_engine(DATABASE)
-session = sessionmaker(bind=engine)()
-
-
-class Photo(Base):
-    __tablename__ = 'photo'
-
-    id = Column(Integer, primary_key=True)
-    path = Column(String(256), index=True)
-    mtime = Column(DateTime)
-    ctime = Column(DateTime)
-    md5 = Column(String(64), index=True)
-    sha256 = Column(String(256))
-    exif = Column(JSON)
-    exif_status = Column(Boolean)
-
-    def __repr__(self):
-        return f'Photo {self.path}'
-
-
-class PhotoMulti(Base):
-    __tablename__ = 'photo_multi'
-    id = Column(Integer, primary_key=True)
-    path = Column(String(256))
-    md5 = Column(String(64))
-    sha256 = Column(String(256))
-
-    def __repr__(self):
-        return f'Photo {self.path}'
+rds = redis.Redis(**REDIS)
 
 
 def files():
@@ -113,34 +74,26 @@ def file_exif(fp):
             }
 
 
-def parse_multi(path, md5, sha256, *args, **kwargs):
-    num = r.get(md5)
-    if not num:
-        r.set(md5, 1)
-    else:
-        r.incr(md5, 1)
-        session.add(PhotoMulti(path=path, md5=md5, sha256=sha256))
-        session.commit()
-
-
 def process_a_photo(fp):
     try:
-        if r.get(fp) is None:
-            db_arg = dict(
-                path=fp,
-                mtime=datetime.fromtimestamp(os.path.getmtime(fp)),
-                ctime=datetime.fromtimestamp(os.path.getctime(fp)),
-                **file_hash(fp),
-                **file_exif(fp),
-            )
+        if rds.hget(fp, 'src') is None:
+            mtime = os.path.getmtime(fp)
+            ctime = os.path.getctime(fp)
 
-            session.add(Photo(**db_arg))
+            db_arg = dict(path=fp, **file_hash(fp), **file_exif(fp))
+
+            session.add(
+                Photo(
+                    mtime=datetime.fromtimestamp(mtime),
+                    ctime=datetime.fromtimestamp(ctime)
+                      **db_arg
+                )
+            )
             session.commit()
 
-            parse_multi(**db_arg)
-
             exif_status = bool(db_arg['exif_status'])
-            r.set(fp, 1)
+            rds.hmset(fp, dict(mtime=mtime, ctime=ctime, **db_arg))
+
             logging.info(f'register {exif_status} {fp}')
         else:
             logging.info(f'continue None {fp}')
@@ -157,6 +110,5 @@ def process_all_photo():
 
 
 if __name__ == '__main__':
-    Base.metadata.create_all(engine)
     process_all_photo()
 
