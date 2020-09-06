@@ -3,12 +3,12 @@ from lib.photos import db_photos
 from model.photo import PhotoStatus
 
 exists_data = {}
-c = 1
+c = 0
 for p in db_photos(print_offset=True):
     c += 1
     exists_data[p.md5] = p.sha256
 
-print(f'dst {c}')
+print(f'dst {c}', len(exists_data))
 
 
 script = """
