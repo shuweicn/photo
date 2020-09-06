@@ -19,3 +19,5 @@ engine = sqlalchemy.create_engine(DB_URI, poolclass=NullPool)
 session = sessionmaker(bind=engine)()
 
 from model.photo import Photo
+
+photo_query = session.query(Photo)

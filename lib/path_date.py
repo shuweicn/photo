@@ -1,7 +1,26 @@
 import re
 from datetime import datetime
 from os import path
-from model.photo import session, Photo
+
+
+def is_ios_photo(fp):
+    filename = path.basename(fp)
+
+    if re.search(r'IMG_E?\d{4}\.(JPG|AAE|PNG|MOV|HEIC|GIF|MP4|JPEG)',
+                 filename):
+        return True
+    if re.search(r'^[A-Z0-9]{8,9}\.(JPG|AAE|PNG|MOV|HEIC|GIF|MP4|JPEG)',
+                 filename):
+        return True
+
+    if re.search(r'IMG_E?\d{4} \(\d\)\.(JPG|AAE|PNG|MOV|HEIC|GIF|MP4|JPEG)',
+                 filename):
+        return True
+    if re.search(r'^[A-Z0-9]{8,9} \(\d\)\.(JPG|AAE|PNG|MOV|HEIC|GIF|MP4|JPEG)',
+                 filename):
+        return True
+
+    return False
 
 
 def model(p):
@@ -163,7 +182,7 @@ def path_with_date(p, exist=0):
         date = fn_cd or p.mtime
         final_name = date.strftime(_f) + suf
 
-    elif 'iPhone' in _model or 'iPad' in _model:
+    elif is_ios_photo(p.src):
         final_name = date.strftime(_f) + '_' + name
 
     elif len(name) < 20 and any(['\u4e00' <= x <= '\u9fff' for x in name]):

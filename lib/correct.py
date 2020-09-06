@@ -75,9 +75,10 @@ def parse_duplicate_photo_status():
 
 def __parse_pre_dst_status(p):
     # 非图片的单独放在 not_a_picture 文件夹
-    if p.exif_type in ['gzip', 'json', 'lnk', 'txt', 'webp', '_none']:
+    if p.exif_type in ['GZIP', 'JSON', 'LNK', 'TXT', '_none']:
         p.status = PhotoStatus.not_a_picture
-        p.pre_dst = path.join(p.status, p.src.replace('/', '_'))
+        p.pre_dst = path.join(p.status,
+                              p.src.lstrip('./').replace('/', '_')+'.'+p.exif_type)
 
     # 上面只分析了重复的图片把重复的图片 放在 duplicate 文件夹
     elif p.status == PhotoStatus.duplicate:
